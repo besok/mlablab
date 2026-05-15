@@ -1,0 +1,16 @@
+name: mlablab
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+  - jupyterlab
+  - ipykernel
+  - sympy
+  - numpy
+  - scipy
+  - matplotlib
+  - ipympl
+  - pip:
+      - manim
