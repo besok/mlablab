@@ -1,0 +1,17 @@
+[project]
+name = "mlablab"
+version = "0.1.0"
+requires-python = ">=3.14"
+dependencies = [
+    "ipympl>=0.10.0",
+    "matplotlib>=3.11.2",
+    "numpy>=2.5.3",
+    "scipy>=1.18.1",
+    "sympy>=1.14.0",
+]
+
+[dependency-groups]
+dev = [
+    "ipykernel>=7.3.0",
+    "jupyterlab>=4.6.3",
+]
