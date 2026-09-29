@@ -12,6 +12,7 @@ dependencies = [
     "scikit-learn>=1.9.1",
     "seaborn>=0.13.2",
     "marimo>=0.25.0",
+    "opencv-python>=5.0.0.93",
 ]
 
 [dependency-groups]
