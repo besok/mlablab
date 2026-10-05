@@ -40,6 +40,9 @@ htmlcov/
 .pyre/
 .ruff_cache/
 
+# Rope (Python refactoring library)
+.ropeproject/
+
 # Jupyter
 .ipynb_checkpoints/
 
