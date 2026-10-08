@@ -1,4 +1,7 @@
+import builtins
 from collections.abc import Callable
+from decimal import DivisionByZero
+from string import digits
 
 type Forward = Callable[[list[float]], float]
 type Backward = Callable[[Node, list[Node]], None]
@@ -64,7 +67,6 @@ class Node:
 
         traverse(self)
         self._grad = 1.0
-        self.reset_grad()
         for n in reversed(topo):
             n.backward()
 
@@ -80,16 +82,128 @@ def mul(a: Node, b: Node) -> Node:
     )
 
 
-# Add ops (each is 5 lines)
-#  - add, sub, neg, div, pow(x, n), exp, log, tanh, sigmoid, relu, sum, mean
-#
-# Prove correctness
-#  - Write gradcheck(fn, x_val) — finite differences, ε=1e-6
-#  - Run it on 10–20 random expressions composed from your ops
-#  - Test deep chain (10+ ops) to stress topo order
-#  - Test diamond (a=x*2; b=x*3; y=a+b) → x.grad == 5
-#  - Test nested fan-out (x*x + x*x*x) → x.grad = 2x + 3x²
-#
+def add(a: Node, b: Node) -> Node:
+    return Node(
+        [a, b],
+        lambda ins: ins[0] + ins[1],
+        lambda n, ins: (
+            ins[0].incr_grad(n.grad),
+            ins[1].incr_grad(n.grad),
+        ),
+    )
+
+
+def sub(a: Node, b: Node) -> Node:
+    return Node(
+        [a, b],
+        lambda ins: ins[0] - ins[1],
+        lambda n, ins: (
+            ins[0].incr_grad(n.grad),
+            ins[1].incr_grad(-n.grad),
+        ),
+    )
+
+
+def div(a: Node, b: Node) -> Node:
+    return Node(
+        [a, b],
+        lambda ins: ins[0] / ins[1],
+        lambda n, ins: (
+            ins[0].incr_grad(n.grad / ins[1].data),
+            ins[1].incr_grad(-1 * n.grad * ins[0].data / ins[1].data ** 2),
+        ),
+    )
+
+
+def neg(a: Node) -> Node:
+    return Node(
+        [a],
+        lambda ins: -ins[0],
+        lambda n, ins: ins[0].incr_grad(-1 * n.grad),
+    )
+
+
+def pow(a: Node, n: int) -> Node:
+    return Node(
+        [a],
+        lambda ins: ins[0] ** n,
+        lambda node, ins: ins[0].incr_grad(n * ins[0].data ** (n - 1) * node.grad),
+    )
+
+
+def exp(a: Node) -> Node:
+    return Node(
+        [a],
+        lambda ins: -ins[0],
+        lambda n, ins: ins[0].incr_grad(-1 * n.grad),
+    )
+
+
+def relu(a: Node) -> Node:
+    return Node(
+        [a],
+        lambda ins: max(0.0, ins[0]),
+        lambda n, ins: ins[0].incr_grad(n.grad if ins[0].data > 0.0 else 0.0),
+    )
+
+
+def sum(nodes: list[Node]) -> Node:
+
+    def _backward(n: Node, inputs: list[Node]) -> None:
+        for i in inputs:
+            i.incr_grad(n.grad)
+
+    return Node(nodes, lambda ins: builtins.sum(ins), _backward)
+
+
+def mean(nodes: list[Node]) -> Node:
+
+    def _backward(n: Node, inputs: list[Node]) -> None:
+        for i in inputs:
+            i.incr_grad(n.grad / len(inputs))
+
+    return Node(nodes, lambda ins: builtins.sum(ins) / len(ins), _backward)
+
+
+def gradcheck(
+    f: Callable[[list[Node]], Node],
+    inputs: list[float],
+    eps: float = 1e-6,
+    tol: float = 1e-5,
+) -> bool:
+    nodes = [Node.leaf(i) for i in inputs]
+    out = f(nodes)
+    out.traverse_backward()
+
+    analytical_grads = [n.grad for n in nodes]
+    numerical_grads = []
+
+    for i in range(len(inputs)):
+        i_inputs = list(inputs)
+        i_inputs[i] += eps
+
+        out_plus = f([Node.leaf(i) for i in i_inputs]).data
+        i_inputs[i] -= eps * 2
+        out_minus = f([Node.leaf(i) for i in i_inputs]).data
+        numerical_grads.append((out_plus - out_minus) / (2 * eps))
+
+    all_passed = True
+    print(
+        f"{'Input i':<8} | {'Analytical':<15} | {'Numerical':<15} | {'Rel Error':<12}"
+    )
+    print("-" * 58)
+
+    for i, (a, n) in enumerate(zip(analytical_grads, numerical_grads)):
+        rel_err = abs(n - a) / (max(1e-8, abs(a) + abs(n)))
+        passed = rel_err < tol
+        if not passed:
+            all_passed = False
+        status = "OK" if passed else "FAIL"
+        print(f"{i:<8} | {a:<15.8f} | {n:<15.8f} | {rel_err:<12.2e} [{status}]")
+
+    return all_passed
+
+
 # Make it usable
 #  - Gradient descent loop on f(x) = (x-3)² — confirm convergence to 3.0
 #  - Optimizer as a function — sgd(params, lr) that does p._data -= lr * p._grad
@@ -105,11 +219,12 @@ def mul(a: Node, b: Node) -> Node:
 #  - Train on MNIST
 #
 def main() -> None:
-    x = Node.leaf(3.0)
-    y = mul(x, x)
-    y.traverse_backward()
-    assert x.grad == 6.0
+    def my_func(inputs: list[Node]) -> Node:
+       x, y = inputs[0], inputs[1]
+       return add(mul(x, y), relu(sub(x, y)))
 
+    passed = gradcheck(my_func, [3.0, 1.5], eps=1e-6)
+    assert passed, "Gradcheck failed!"
 
 if __name__ == "__main__":
     main()
