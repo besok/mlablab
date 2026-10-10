@@ -1,7 +1,5 @@
 import builtins
 from collections.abc import Callable
-from decimal import DivisionByZero
-from string import digits
 
 type Forward = Callable[[list[float]], float]
 type Backward = Callable[[Node, list[Node]], None]
@@ -22,6 +20,9 @@ class Node:
     @property
     def data(self) -> float:
         return self._data
+
+    def set_data(self, v: float) -> None:
+        self._data = v
 
     @property
     def grad(self) -> float:
@@ -54,6 +55,7 @@ class Node:
         clear(self)
 
     def traverse_backward(self) -> None:
+        self.reset_grad()
         topo = []
         visited = set()
 
@@ -204,10 +206,32 @@ def gradcheck(
     return all_passed
 
 
-# Make it usable
-#  - Gradient descent loop on f(x) = (x-3)² — confirm convergence to 3.0
-#  - Optimizer as a function — sgd(params, lr) that does p._data -= lr * p._grad
-#
+def sgd(params: list[Node], lr: float) -> None:
+    for p in params:
+        p.set_data(p.data - lr * p.grad)
+
+
+def grad_descent(
+    expr: Callable[[list[Node]], Node],
+    params: list[Node],
+    optimizer: Callable[[list[Node], float], None] = sgd,
+    learning_rate: float = 0.1,
+    attempts: int = 100,
+    tol: float = 1e-6,
+) -> list[Node]:
+
+    for _ in range(attempts):
+        f = expr(params)
+        f.traverse_backward()
+
+        if builtins.sum(abs(p.grad) for p in params) < tol:
+            break
+
+        optimizer(params, learning_rate)
+
+    return params
+
+
 # Jump
 #  - Port float → np.ndarray
 #  - Handle broadcasting in backward — every op's backward must sum over broadcasted axes
@@ -219,12 +243,16 @@ def gradcheck(
 #  - Train on MNIST
 #
 def main() -> None:
-    def my_func(inputs: list[Node]) -> Node:
-       x, y = inputs[0], inputs[1]
-       return add(mul(x, y), relu(sub(x, y)))
+    params = [Node.leaf(0.0), Node.leaf(0.0)]
 
-    passed = gradcheck(my_func, [3.0, 1.5], eps=1e-6)
-    assert passed, "Gradcheck failed!"
+    expr = lambda ns: add(
+        pow(sub(ns[0], Node.leaf(3.0)), 2), pow(add(ns[1], Node.leaf(2.0)), 2)
+    )
+
+    result = grad_descent(expr, params)
+    print(f"x: {result[0].data:.4f} (target: 3.0)")
+    print(f"y: {result[1].data:.4f} (target: -2.0)")
+
 
 if __name__ == "__main__":
     main()
