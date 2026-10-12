@@ -133,14 +133,6 @@ def pow(a: Node, n: int) -> Node:
     )
 
 
-def exp(a: Node) -> Node:
-    return Node(
-        [a],
-        lambda ins: -ins[0],
-        lambda n, ins: ins[0].incr_grad(-1 * n.grad),
-    )
-
-
 def relu(a: Node) -> Node:
     return Node(
         [a],
@@ -232,16 +224,6 @@ def grad_descent(
     return params
 
 
-# Jump
-#  - Port float → np.ndarray
-#  - Handle broadcasting in backward — every op's backward must sum over broadcasted axes
-#  - matmul with backward: dA = dOut @ B.T, dB = A.T @ dOut
-#  - reshape, transpose
-#  - Re-run gradcheck with arrays — this catches every broadcasting bug
-#  - Linear layer — W @ x + b as a class or function
-#  - Loss functions — MSE, then cross-entropy
-#  - Train on MNIST
-#
 def main() -> None:
     params = [Node.leaf(0.0), Node.leaf(0.0)]
 
