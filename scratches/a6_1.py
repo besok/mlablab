@@ -1,7 +1,9 @@
-from ast import Pass
 import builtins
+from ast import Pass
 from typing import Callable
+
 import numpy as np
+from sklearn.datasets import fetch_openml
 
 
 class Node:
@@ -43,6 +45,9 @@ class Node:
     def set_data(self, v: np.ndarray) -> None:
         self._data = v
 
+    def null_grad(self) -> None:
+        self._grad = np.zeros_like(self.data)
+    
     def reset_grad(self) -> None:
         visited = set()
 
@@ -326,19 +331,131 @@ def softmax_cross_entropy(logits: Node, targets: Node) -> Node:
 
     return Node(inputs=[logits, targets], forward=_forward, backward=_backward)
 
+class Module:
+    def forward(self, *args, **kwargs) -> Node:
+        raise NotImplemented()    
+
+    def parameters(self) -> list[Node]:
+        params = []
+        for value in self.__dict__.values():
+            if isinstance(value, Node):
+                params.append(value)
+            elif isinstance(value, Module):
+                params.extend(value.parameters())
+        return params
+
+class Linear(Module):
+    def __init__(self, in_fts: int, out_fts:int) -> None:
+        bound = 1.0  / np.sqrt(in_fts)
+
+        w_data = np.random.uniform(-bound, bound, (in_fts,out_fts))        
+        b_data = np.zeros((1, out_fts),dtype=np.float64)
+
+        self.W = Node.leaf(w_data)
+        
+        self.b = Node.leaf(b_data)
+        super().__init__()
+
+    def forward(self, x: Node) -> Node:
+        return add(matmul(x, self.W), self.b)
+
+
+class MLP(Module):
+    def __init__(self, input:int, hidden:int, output:int) -> None:
+        self.fc1 = Linear(input, hidden)
+        self.fc2 = Linear(hidden, output)
+        super().__init__()
+
+    def forward(self, x: Node) -> Node:
+        return self.fc2.forward(relu(self.fc1.forward(x)))
+
+
+def get_mnist_data() -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    X, y = fetch_openml("mnist_784", version=1, return_X_y=True, as_frame=False)
+    X = X.astype(np.float64) / 255.0
+    y_int = y.astype(np.int64)
+    y_one_h = np.zeros((y_int.size, 10),dtype=np.float64)
+    y_one_h[np.arange(y_int.size), y_int] = 1.0
+
+    return X[:60000], y_one_h[:60000], X[60000:], y_one_h[60000:]
+
+
+def evaluate(model:Module, X_test: np.ndarray, y_test:np.ndarray, batch_size:int = 500) -> float:
+    correct = 0
+    num_samples = X_test.shape[0]
+
+    for start_idx in range(0, num_samples, batch_size):
+        x_b = X_test[start_idx: start_idx + batch_size]
+        y_b = y_test[start_idx: start_idx + batch_size]
+
+        logits = model.forward(Node.leaf(x_b))
+        logits.forward()
+
+        preds = np.argmax(logits.data,axis=1)
+        targs = np.argmax(y_b, axis=1)
+
+        correct += np.sum(preds == targs)
+        
+    return (correct/num_samples) * 100
+
 
 def main() -> None:
-    np.random.seed(42)
-    logits = Node.leaf(np.array([[2.0, 1.0, 0.1], [0.5, 2.5, 0.3]]))
-    targets = Node.leaf(np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]))
+    X_train, y_train, X_test, y_test = get_mnist_data()
 
-    loss = softmax_cross_entropy(logits, targets)
-    loss.forward()
-    loss.traverse_backward()
+    model = MLP(784,128,10)
+    params = model.parameters()
 
-    print("Cross-Entropy Loss:\n", loss.data)
-    print("Gradients w.r.t. Logits:\n", logits.grad)
+    batch_size = 64
+    epochs = 3
+    learning_rate = 0.1
+
+    num_samples = X_train.shape[0]
+
+    for epoch in range(epochs):
+        indices = np.arange(num_samples)
+        np.random.shuffle(indices)
 
 
+        epoch_loss = 0.0
+        correct_preds = 0
+
+        for start_idx in range(0, num_samples, batch_size):
+            batch_idx = indices[start_idx: start_idx + batch_size]
+
+            X_batch = X_train[batch_idx]
+            y_batch = y_train[batch_idx]
+
+            for p in params:
+                p.null_grad()
+
+            x_node = Node.leaf(X_batch)
+            y_node = Node.leaf(y_batch)
+
+            logits = model.forward(x_node)
+            loss_node = softmax_cross_entropy(logits, y_node)
+
+            loss_node.forward()
+            loss_node.traverse_backward()
+
+            sgd(params, learning_rate)
+            epoch_loss += loss_node.data.item() * X_batch.shape[0]
+            preds = np.argmax(logits.data, axis=1)
+            targs = np.argmax(y_batch, axis = 1)
+            correct_preds += np.sum(preds == targs)
+
+            
+        avg_loss = epoch_loss / num_samples
+        acc = (correct_preds / num_samples) * 100
+
+        print(
+            f"Epoch {epoch + 1}/{epochs} | Loss: {avg_loss:.4f} | Acc: {acc:.2f}%"
+        )
+
+        test_acc = evaluate(model, X_test, y_test)
+        print(
+            f"Test Acc: {test_acc:.2f}%"
+        )
+        
+    
 if __name__ == "__main__":
     main()
