@@ -13,6 +13,7 @@ dependencies = [
     "seaborn>=0.13.2",
     "marimo>=0.25.0",
     "opencv-python>=5.0.0.93",
+    "torch>=2.9.0",
 ]
 
 [dependency-groups]

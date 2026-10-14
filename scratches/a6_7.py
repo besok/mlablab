@@ -402,7 +402,7 @@ def evaluate(model:Module, X_test: np.ndarray, y_test:np.ndarray, batch_size:int
 def main() -> None:
     X_train, y_train, X_test, y_test = get_mnist_data()
 
-    model = MLP(784,128,10)
+    model = MLP(784,50,10)
     params = model.parameters()
 
     batch_size = 64
