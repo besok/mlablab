@@ -1,5 +1,7 @@
 import torch
 import torch.nn as nn
+from torch.optim import Adam
+from torch.utils.data import DataLoader
 import torchvision.transforms as transforms
 import torchvision
 
@@ -36,7 +38,42 @@ class SimpleCNN(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.classifier(self.features(x))
 
+def evaluate(dataloader:DataLoader, model: SimpleCNN,opt:Adam, device,  train: bool = True) -> float:
+    run_loss = 0.0
+    if train:
+        criterion = nn.CrossEntropyLoss()
 
+        model.train()
+
+        for i, (inputs, targets) in enumerate(dataloader):
+            inputs, targets = inputs.to(device), targets.to(device)
+            opt.zero_grad()
+            outputs = model(inputs)
+            loss = criterion.forward(outputs, targets)
+            loss.backward()
+
+            opt.step()
+            run_loss += loss.item()
+
+    else:
+        model.eval()
+        criterion = nn.CrossEntropyLoss()
+        with torch.no_grad():
+            for i, (inps, trgs) in enumerate(dataloader):
+                inputs, targets = inps.to(device), trgs.to(device)
+                outputs = model(inputs)
+                loss = criterion.forward(outputs, targets)
+                run_loss += loss.item()
+        
+    return run_loss/len(dataloader)
+   
+# Expreiment with
+# - zero-init weights
+# - no BatchNorm
+# - learning rate 10.0
+# - no normalization
+# - slow dataloader
+# Record loss curves and gradient histograms, and read the PyTorch Profiler trace.
 if __name__ == "__main__":
     transform = transforms.Compose(
         [
@@ -48,36 +85,29 @@ if __name__ == "__main__":
     )
 
     trainset = torchvision.datasets.CIFAR10(
-        root="./data", train=True, download=True, transform=transform
+        root="./data", train=True, download=False, transform=transform
     )
     trainloader = torch.utils.data.DataLoader(
         trainset, batch_size=64, shuffle=True, num_workers=8
+    )
+
+    testset = torchvision.datasets.CIFAR10(
+        root="./data", train=False, download=False, transform=transform
+    )
+    testloader = DataLoader(
+        testset, batch_size=64, shuffle=True, num_workers=8
     )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
     model = SimpleCNN().to(device)
-    criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), )
+    opt = Adam(model.parameters())
 
+    epochs = 5
+    for e in range(epochs):
+        running_loss_train= evaluate(trainloader, model,opt , device)
+        running_loss_test = evaluate(testloader, model, opt, device,train = False)
+        
+        print(f"{e}| {running_loss_train:.2f} -> {running_loss_test:.2f}")
 
-    model.train()
-    running_loss= 0.0
-
-    for i, (inputs, targets) in enumerate(trainloader):
-        inputs, targets = inputs.to(device), targets.to(device)
-        optimizer.zero_grad()
-        outputs = model.forward(inputs)
-        loss = criterion.forward(outputs, targets)
-        loss.backward()
-
-        optimizer.step()
-        running_loss += loss.item()
-
-        if i % 100 == 99:
-            print(f"Step [{i+1}/{len(trainloader)}],"
-                  f"Loss: {running_loss / 100:.4f},"
-                  f"{running_loss/len(trainloader):.4f}"
-              )
-    
